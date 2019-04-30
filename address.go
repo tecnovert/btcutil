@@ -74,11 +74,18 @@ func encodeSegWitAddress(hrp string, witnessVersion byte, witnessProgram []byte)
 		return "", err
 	}
 
-	// Concatenate the witness version and program, and encode the resulting
-	// bytes using bech32 encoding.
-	combined := make([]byte, len(converted)+1)
-	combined[0] = witnessVersion
-	copy(combined[1:], converted)
+	combined := make([]byte, 0)
+	if hrp != "ph" && hrp != "tph" {
+		// Concatenate the witness version and program, and encode the resulting
+		// bytes using bech32 encoding.
+		combined = make([]byte, len(converted)+1)
+		combined[0] = witnessVersion
+		copy(combined[1:], converted)
+	} else
+	{
+		combined = make([]byte, len(converted))
+		copy(combined, converted)
+	}
 	bech, err := bech32.Encode(hrp, combined)
 	if err != nil {
 		return "", err
@@ -210,7 +217,7 @@ func DecodeAddress(addr string, defaultNet *chaincfg.Params) (Address, error) {
 // returns the witness version and witness program byte representation.
 func decodeSegWitAddress(address string) (byte, []byte, error) {
 	// Decode the bech32 encoded address.
-	_, data, err := bech32.Decode(address)
+	hrp, data, err := bech32.Decode(address)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -221,16 +228,22 @@ func decodeSegWitAddress(address string) (byte, []byte, error) {
 		return 0, nil, fmt.Errorf("no witness version")
 	}
 
-	// ...and be <= 16.
-	version := data[0]
-	if version > 16 {
-		return 0, nil, fmt.Errorf("invalid witness version: %v", version)
+	regrouped := []byte{0}
+	version := byte(0)
+	if hrp != "ph" && hrp != "tph" {
+		// ...and be <= 16.
+		version = data[0]
+		if version > 16 {
+			return 0, nil, fmt.Errorf("invalid witness version: %v", version)
+		}
+		// The remaining characters of the address returned are grouped into
+		// words of 5 bits. In order to restore the original witness program
+		// bytes, we'll need to regroup into 8 bit words.
+		regrouped, err = bech32.ConvertBits(data[1:], 5, 8, false)
+	} else
+	{
+		regrouped, err = bech32.ConvertBits(data, 5, 8, false)
 	}
-
-	// The remaining characters of the address returned are grouped into
-	// words of 5 bits. In order to restore the original witness program
-	// bytes, we'll need to regroup into 8 bit words.
-	regrouped, err := bech32.ConvertBits(data[1:], 5, 8, false)
 	if err != nil {
 		return 0, nil, err
 	}
